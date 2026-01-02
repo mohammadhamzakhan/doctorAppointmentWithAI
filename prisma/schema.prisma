@@ -1,0 +1,225 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider     = "postgresql"
+  relationMode = "prisma"
+}
+
+model Admin {
+  id                Int       @id @default(autoincrement())
+  name              String?   @default("Admin")
+  email             String    @unique
+  password          String
+  hashToken         String?
+  emailChangeCode   String?
+  passwordResetCode String?
+  isEmailVerifeid   Boolean   @default(false)
+  emailChangeExpiry DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  isActive          Boolean   @default(true)
+  loginAtempts      Int       @default(0)
+  lastLogin         DateTime?
+}
+
+model Doctor {
+  // =========================
+  //   details
+  // =========================
+  id             Int     @id @default(autoincrement())
+  name           String
+  email          String  @unique
+  phoneNumber    String?
+  phoneNumberId  String? @unique
+  password       String
+  specialization String
+  clinicName     String?
+  bio            String?
+
+  // =========================
+  // Verification & security
+  // =========================
+  hashToken          String?
+  emailChangeCode    String?
+  passwordResetCode  String?
+  emailChangeExpiry  DateTime?
+  isEmailVerified    Boolean   @default(false)
+  isProfileCompleted Boolean   @default(false)
+
+  // =========================
+  // Booking & scheduling
+  // =========================
+  isAutoBooking        Boolean   @default(true)
+  isBookingEnabled     Boolean   @default(true)
+  bookingDisabledUntil DateTime?
+
+  bookingMode BookingMode @default(QUEUE)
+
+  slotDuration          Int @default(15)
+  maxAppointmentsPerDay Int @default(32)
+  dailyBufferMinutes    Int @default(0)
+  gracePeriodMinutes    Int @default(10)
+
+  timezone String
+
+  // AI safety lock
+  scheduleLockedUntil DateTime?
+
+  // =========================
+  // Meta
+  // =========================
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  isActive     Boolean   @default(true)
+  loginAtempts Int       @default(0)
+  lastLogin    DateTime?
+  lockedUntil  DateTime?
+
+  // =========================
+  // Relations
+  // =========================
+  assistants           assistant[]
+  appointments         Appointment[]
+  doctorAvailabilities DoctorAvailability[]
+  messageLogs          MessageLog[]
+}
+
+enum BookingMode {
+  FIXED // strict time slots
+  QUEUE // dynamic shifting
+}
+
+model DoctorAvailability {
+  id        Int      @id @default(autoincrement())
+  doctorId  Int
+  day       Int // 0 = Sunday, 6 = Saturday
+  startTime String // "09:00"
+  endTime   String // "17:00"
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  doctor    Doctor   @relation(fields: [doctorId], references: [id])
+
+  @@index([doctorId])
+}
+
+model assistant {
+  id           Int       @id @default(autoincrement())
+  doctorId     Int
+  name         String    @unique
+  password     String
+  hashToken    String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  Doctor       Doctor    @relation(fields: [doctorId], references: [id])
+  isActive     Boolean   @default(true)
+  loginAtempts Int       @default(0)
+  lastLogin    DateTime?
+
+  appointments Appointment[]
+
+  @@index([doctorId])
+}
+
+model Patient {
+  id           Int           @id @default(autoincrement())
+  name         String
+  phone        String        @unique
+  appointments Appointment[]
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  messageLogs MessageLog[]
+}
+
+model Appointment {
+  id Int @id @default(autoincrement())
+
+  // =========================
+  // Relations
+  // =========================
+  doctorId    Int
+  assistantId Int?
+  patientId   Int
+
+  Doctor    Doctor     @relation(fields: [doctorId], references: [id])
+  Assistant assistant? @relation(fields: [assistantId], references: [id])
+  Patient   Patient    @relation(fields: [patientId], references: [id])
+
+  // =========================
+  // Scheduling
+  // =========================
+  appointmentDate DateTime // normalized day
+  scheduledStart  DateTime
+  scheduledEnd    DateTime
+
+  actualStart DateTime?
+  actualEnd   DateTime?
+
+  queueNumber Int
+
+  expectedDuration Int
+  actualDuration   Int?
+
+  // =========================
+  // Status & control
+  // =========================
+  appointmentStatus AppointmentStatus @default(pending)
+  isNoShow          Boolean           @default(false)
+  cancelledAt       DateTime?
+
+  bookedBy BookingSource
+  reason   String?
+
+  // AI concurrency lock
+  lockedUntil DateTime?
+
+  // Soft delete
+  isDeleted Boolean @default(false)
+
+  // =========================
+  // Meta
+  // =========================
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([doctorId, scheduledStart])
+  @@index([doctorId])
+  @@index([assistantId])
+  @@index([patientId])
+  @@index([appointmentDate])
+  @@index([queueNumber])
+}
+
+enum BookingSource {
+  ai
+  doctor
+  assistant
+  patient
+}
+
+model MessageLog {
+  id        Int      @id @default(autoincrement())
+  doctorId  Int
+  patientId Int
+  message   String
+  direction String // "incoming" or "outgoing"
+  createdAt DateTime @default(now())
+
+  doctor  Doctor  @relation(fields: [doctorId], references: [id])
+  patient Patient @relation(fields: [patientId], references: [id])
+
+  @@index([doctorId])
+  @@index([patientId])
+}
+
+enum AppointmentStatus {
+  pending
+  confirmed
+  cancelled
+  completed
+  rescheduled
+}
