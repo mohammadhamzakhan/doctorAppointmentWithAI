@@ -9,95 +9,66 @@ datasource db {
 
 model Admin {
   id                Int       @id @default(autoincrement())
-  name              String?   @default("Admin")
   email             String    @unique
   password          String
-  hashToken         String?
-  emailChangeCode   String?
-  passwordResetCode String?
-  isEmailVerifeid   Boolean   @default(false)
-  emailChangeExpiry DateTime?
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
   isActive          Boolean   @default(true)
   loginAtempts      Int       @default(0)
   lastLogin         DateTime?
+  hashToken         String?
+  name              String?   @default("Admin")
+  emailChangeExpiry DateTime?
+  emailChangeCode   String?
+  passwordResetCode String?
+  isEmailVerifeid   Boolean   @default(false)
 }
 
 model Doctor {
-  // =========================
-  //   details
-  // =========================
-  id             Int     @id @default(autoincrement())
-  name           String
-  email          String  @unique
-  phoneNumber    String?
-  phoneNumberId  String? @unique
-  password       String
-  specialization String
-  clinicName     String?
-  bio            String?
-
-  // =========================
-  // Verification & security
-  // =========================
-  hashToken          String?
-  emailChangeCode    String?
-  passwordResetCode  String?
-  emailChangeExpiry  DateTime?
-  isEmailVerified    Boolean   @default(false)
-  isProfileCompleted Boolean   @default(false)
-
-  // =========================
-  // Booking & scheduling
-  // =========================
-  isAutoBooking        Boolean   @default(true)
-  isBookingEnabled     Boolean   @default(true)
-  bookingDisabledUntil DateTime?
-
-  bookingMode BookingMode @default(QUEUE)
-
-  slotDuration          Int @default(15)
-  maxAppointmentsPerDay Int @default(32)
-  dailyBufferMinutes    Int @default(0)
-  gracePeriodMinutes    Int @default(10)
-
-  timezone String
-
-  // AI safety lock
-  scheduleLockedUntil DateTime?
-
-  // =========================
-  // Meta
-  // =========================
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  isActive     Boolean   @default(true)
-  loginAtempts Int       @default(0)
-  lastLogin    DateTime?
-  lockedUntil  DateTime?
-
-  // =========================
-  // Relations
-  // =========================
-  assistants           assistant[]
-  appointments         Appointment[]
-  doctorAvailabilities DoctorAvailability[]
-  messageLogs          MessageLog[]
-}
-
-enum BookingMode {
-  FIXED // strict time slots
-  QUEUE // dynamic shifting
+  id                    Int                  @id @default(autoincrement())
+  name                  String
+  email                 String               @unique
+  password              String
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+  isActive              Boolean              @default(true)
+  loginAtempts          Int                  @default(0)
+  lastLogin             DateTime?
+  hashToken             String?
+  specialization        String
+  emailChangeExpiry     DateTime?
+  emailChangeCode       String?
+  passwordResetCode     String?
+  bio                   String?
+  clinicName            String?
+  isAutoBooking         Boolean              @default(true)
+  isEmailVerified       Boolean              @default(false)
+  isProfileCompleted    Boolean              @default(false)
+  lockedUntil           DateTime?
+  phoneNumber           String?
+  slotDuration          Int                  @default(15)
+  bookingDisabledUntil  DateTime?
+  bookingMode           BookingMode          @default(QUEUE)
+  dailyBufferMinutes    Int                  @default(0)
+  gracePeriodMinutes    Int                  @default(10)
+  isBookingEnabled      Boolean              @default(true)
+  maxAppointmentsPerDay Int                  @default(32)
+  scheduleLockedUntil   DateTime?
+  timezone              String               @default("Asia/Karachi")
+  phoneNumberId         String?              @unique
+  waAccessToken         String?              @db.Text
+  assistants            assistant[]
+  appointments          Appointment[]
+  doctorAvailabilities  DoctorAvailability[]
+  messageLogs           MessageLog[]
 }
 
 model DoctorAvailability {
   id        Int      @id @default(autoincrement())
   doctorId  Int
-  day       Int // 0 = Sunday, 6 = Saturday
-  startTime String // "09:00"
-  endTime   String // "17:00"
+  day       Int
+  startTime String
+  endTime   String
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -107,18 +78,17 @@ model DoctorAvailability {
 }
 
 model assistant {
-  id           Int       @id @default(autoincrement())
+  id           Int           @id @default(autoincrement())
   doctorId     Int
-  name         String    @unique
+  name         String        @unique
   password     String
-  hashToken    String?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  Doctor       Doctor    @relation(fields: [doctorId], references: [id])
-  isActive     Boolean   @default(true)
-  loginAtempts Int       @default(0)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  isActive     Boolean       @default(true)
+  loginAtempts Int           @default(0)
   lastLogin    DateTime?
-
+  hashToken    String?
+  Doctor       Doctor        @relation(fields: [doctorId], references: [id])
   appointments Appointment[]
 
   @@index([doctorId])
@@ -128,63 +98,37 @@ model Patient {
   id           Int           @id @default(autoincrement())
   name         String
   phone        String        @unique
-  appointments Appointment[]
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
-
-  messageLogs MessageLog[]
+  appointments Appointment[]
+  messageLogs  MessageLog[]
 }
 
 model Appointment {
-  id Int @id @default(autoincrement())
-
-  // =========================
-  // Relations
-  // =========================
-  doctorId    Int
-  assistantId Int?
-  patientId   Int
-
-  Doctor    Doctor     @relation(fields: [doctorId], references: [id])
-  Assistant assistant? @relation(fields: [assistantId], references: [id])
-  Patient   Patient    @relation(fields: [patientId], references: [id])
-
-  // =========================
-  // Scheduling
-  // =========================
-  appointmentDate DateTime // normalized day
-  scheduledStart  DateTime
-  scheduledEnd    DateTime
-
-  actualStart DateTime?
-  actualEnd   DateTime?
-
-  queueNumber Int
-
-  expectedDuration Int
-  actualDuration   Int?
-
-  // =========================
-  // Status & control
-  // =========================
+  id                Int               @id @default(autoincrement())
+  doctorId          Int
+  assistantId       Int?
+  patientId         Int
+  appointmentDate   DateTime
+  reason            String?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
   appointmentStatus AppointmentStatus @default(pending)
-  isNoShow          Boolean           @default(false)
+  actualDuration    Int?
+  actualEnd         DateTime?
+  actualStart       DateTime?
+  bookedBy          BookingSource
   cancelledAt       DateTime?
-
-  bookedBy BookingSource
-  reason   String?
-
-  // AI concurrency lock
-  lockedUntil DateTime?
-
-  // Soft delete
-  isDeleted Boolean @default(false)
-
-  // =========================
-  // Meta
-  // =========================
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  expectedDuration  Int
+  isDeleted         Boolean           @default(false)
+  isNoShow          Boolean           @default(false)
+  lockedUntil       DateTime?
+  queueNumber       Int
+  scheduledEnd      DateTime
+  scheduledStart    DateTime
+  Doctor            Doctor            @relation(fields: [doctorId], references: [id])
+  Assistant         assistant?        @relation(fields: [assistantId], references: [id])
+  Patient           Patient           @relation(fields: [patientId], references: [id])
 
   @@unique([doctorId, scheduledStart])
   @@index([doctorId])
@@ -194,26 +138,30 @@ model Appointment {
   @@index([queueNumber])
 }
 
-enum BookingSource {
-  ai
-  doctor
-  assistant
-  patient
-}
-
 model MessageLog {
   id        Int      @id @default(autoincrement())
   doctorId  Int
   patientId Int
   message   String
-  direction String // "incoming" or "outgoing"
+  direction String
   createdAt DateTime @default(now())
-
-  doctor  Doctor  @relation(fields: [doctorId], references: [id])
-  patient Patient @relation(fields: [patientId], references: [id])
+  doctor    Doctor   @relation(fields: [doctorId], references: [id])
+  patient   Patient  @relation(fields: [patientId], references: [id])
 
   @@index([doctorId])
   @@index([patientId])
+}
+
+enum BookingMode {
+  FIXED
+  QUEUE
+}
+
+enum BookingSource {
+  ai
+  doctor
+  assistant
+  patient
 }
 
 enum AppointmentStatus {

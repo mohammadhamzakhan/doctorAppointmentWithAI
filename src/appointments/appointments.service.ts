@@ -5,7 +5,7 @@ import {
   InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
-import { AppointmentStatus, BookingSource } from '@prisma/client';
+import { AppointmentStatus, BookingSource, Prisma } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { UpdateAppointmentDto } from './dto/update-appointment.dto';
 import { toZonedTime, formatInTimeZone, fromZonedTime } from 'date-fns-tz';
@@ -17,44 +17,85 @@ export class AppointmentsService {
   // create Appointment
   //----------------
 
+  private parseAvailabilityTime(time: string): {
+    hour: number;
+    minute: number;
+  } {
+    const match = time
+      .toLowerCase()
+      .trim()
+      .match(/(\d{1,2}):(\d{2})\s*(am|pm)/);
+
+    if (!match) {
+      throw new Error(`Invalid availability time format: ${time}`);
+    }
+
+    let hour = parseInt(match[1], 10);
+    const minute = parseInt(match[2], 10);
+    const period = match[3];
+
+    if (period === 'pm' && hour !== 12) hour += 12;
+    if (period === 'am' && hour === 12) hour = 0;
+
+    return { hour, minute };
+  }
+
   async createAppointment(
     doctorId: number,
     dto: {
       pateintName: string;
       patientPhone: string;
-      scheduledStart: Date;
+      scheduledStart: Date; // doctor-local datetime
       reason?: string;
     },
     bookedBy: BookingSource,
     assistantId: number,
+    prisma?: PrismaService | Prisma.TransactionClient,
   ) {
     try {
-      //first we will find the doctor
-      const doctor = await this.prisma.doctor.findUnique({
+      const db = prisma ?? this.prisma;
+
+      /* ───────────── DOCTOR CHECK ───────────── */
+
+      const doctor = await db.doctor.findUnique({
         where: { id: doctorId },
       });
-      if (!doctor || !doctor.isActive)
-        throw new ForbiddenException('Doctor not available!');
-      if (!doctor.isAutoBooking && bookedBy === 'ai')
-        throw new ForbiddenException('Auto booking is unavailable!');
-      // Parse doctor's local datetime string
+
+      if (!doctor || !doctor.isActive) {
+        throw new ForbiddenException('Doctor not available');
+      }
+
+      if (!doctor.isAutoBooking && bookedBy === 'ai') {
+        throw new ForbiddenException('Auto booking is unavailable');
+      }
+
+      /* ───────────── TIMEZONE NORMALIZATION ───────────── */
+
+      // Convert doctor-local input → UTC (ONLY store UTC)
       const scheduledStartUTC = fromZonedTime(
         dto.scheduledStart,
         doctor.timezone,
       );
-      //converting scheduled start to doctor's timezone
+
+      // Convert back to doctor timezone for validation
       const zonedStart = toZonedTime(scheduledStartUTC, doctor.timezone);
 
-      // checking if the appointment is in the past
-      if (new Date(dto.scheduledStart) < new Date())
-        throw new BadRequestException('Cannot book appointment in the past');
+      /* ───────────── BLOCK PAST BOOKINGS ───────────── */
 
-      // 4️⃣ Appointment date (doctor local day)
+      const nowInDoctorTZ = toZonedTime(new Date(), doctor.timezone);
+
+      if (zonedStart <= nowInDoctorTZ) {
+        throw new BadRequestException('Cannot book appointment in the past');
+      }
+
+      /* ───────────── APPOINTMENT DATE (DOCTOR LOCAL DAY) ───────────── */
+
       const appointmentDate = new Date(zonedStart);
       appointmentDate.setHours(0, 0, 0, 0);
 
-      // checking  Daily limit of appointments
-      const count = await this.prisma.appointment.count({
+      /* ───────────── DAILY LIMIT CHECK ───────────── */
+
+      const dailyCount = await db.appointment.count({
         where: {
           doctorId,
           appointmentDate,
@@ -62,66 +103,93 @@ export class AppointmentsService {
           isDeleted: false,
         },
       });
-      if (count >= doctor.maxAppointmentsPerDay)
-        throw new BadRequestException('Daily limit reached');
 
-      // Checking availability for the day
+      if (dailyCount >= doctor.maxAppointmentsPerDay) {
+        throw new BadRequestException('Daily appointment limit reached');
+      }
+
+      /* ───────────── DOCTOR AVAILABILITY ───────────── */
+
       const day = zonedStart.getDay();
-      const availability = await this.prisma.doctorAvailability.findFirst({
-        where: { doctorId, day, isActive: true },
+
+      const availability = await db.doctorAvailability.findFirst({
+        where: {
+          doctorId,
+          day,
+          isActive: true,
+        },
       });
-      if (!availability)
+
+      if (!availability) {
         throw new BadRequestException('Doctor unavailable on this day');
+      }
 
-      // Calculate minutes for working hours check
-      const startMinutes =
-        parseInt(formatInTimeZone(zonedStart, doctor.timezone, 'HH')) * 60 +
-        parseInt(formatInTimeZone(zonedStart, doctor.timezone, 'mm'));
-      const endMinutes = startMinutes + doctor.slotDuration;
+      /* ───────────── WORKING HOURS (STRICT, AM/PM SAFE) ───────────── */
 
-      const [startH, startM] = availability.startTime.split(':').map(Number);
-      const [endH, endM] = availability.endTime.split(':').map(Number);
-      const availableStart = startH * 60 + startM;
-      const availableEnd = endH * 60 + endM;
+      const start = this.parseAvailabilityTime(availability.startTime);
+      const end = this.parseAvailabilityTime(availability.endTime);
 
-      if (startMinutes < availableStart || endMinutes > availableEnd) {
+      const availabilityStart = new Date(zonedStart);
+      availabilityStart.setHours(start.hour, start.minute, 0, 0);
+
+      const availabilityEnd = new Date(zonedStart);
+      availabilityEnd.setHours(end.hour, end.minute, 0, 0);
+
+      const appointmentEnd = new Date(
+        zonedStart.getTime() + doctor.slotDuration * 60 * 1000,
+      );
+
+      // ❌ FINAL GUARANTEE
+      if (zonedStart < availabilityStart || appointmentEnd > availabilityEnd) {
         throw new BadRequestException(
-          `Outside working hours (${availability.startTime} - ${availability.endTime})`,
+          `Doctor is available from ${availability.startTime} to ${availability.endTime}`,
         );
       }
 
-      // Queue number
-      const last = await this.prisma.appointment.findFirst({
-        where: { doctorId, appointmentDate, isDeleted: false },
+      /* ───────────── QUEUE NUMBER ───────────── */
+
+      const last = await db.appointment.findFirst({
+        where: {
+          doctorId,
+          appointmentDate,
+          isDeleted: false,
+        },
         orderBy: { queueNumber: 'desc' },
       });
+
       const queueNumber = last ? last.queueNumber + 1 : 1;
 
-      //  Scheduled end (UTC)
+      /* ───────────── SCHEDULED END (UTC) ───────────── */
 
       const scheduledEndUTC = new Date(
         scheduledStartUTC.getTime() + doctor.slotDuration * 60 * 1000,
       );
 
-      // getting Patient record if not existing patient so we create a patient
-      let patient = await this.prisma.patient.findUnique({
+      /* ───────────── PATIENT UPSERT ───────────── */
+
+      let patient = await db.patient.findUnique({
         where: { phone: dto.patientPhone },
       });
+
       if (!patient) {
-        patient = await this.prisma.patient.create({
-          data: { name: dto.pateintName, phone: dto.patientPhone },
+        patient = await db.patient.create({
+          data: {
+            name: dto.pateintName,
+            phone: dto.patientPhone,
+          },
         });
       }
 
-      //  Create appointment
-      await this.prisma.appointment.create({
+      /* ───────────── CREATE APPOINTMENT ───────────── */
+
+      await db.appointment.create({
         data: {
           doctorId,
           assistantId,
           patientId: patient.id,
           appointmentDate,
-          scheduledStart: scheduledStartUTC,
-          scheduledEnd: scheduledEndUTC,
+          scheduledStart: scheduledStartUTC, // ✅ UTC
+          scheduledEnd: scheduledEndUTC, // ✅ UTC
           expectedDuration: doctor.slotDuration,
           queueNumber,
           reason: dto.reason,
@@ -129,11 +197,13 @@ export class AppointmentsService {
         },
       });
 
-      return { message: 'Appointment booked' };
+      return {
+        message: 'Appointment booked successfully',
+      };
     } catch (err: any) {
       if (err.code === 'P2002') {
         throw new ForbiddenException(
-          'Cannot set 2 appointments at the same time!',
+          'Cannot book two appointments at the same time',
         );
       }
       throw err;

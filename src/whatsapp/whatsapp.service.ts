@@ -1,15 +1,44 @@
 import { Injectable, Logger } from '@nestjs/common';
 import axios from 'axios';
+import { PrismaService } from 'src/prisma/prisma.service';
 
 @Injectable()
 export class WhatsAppService {
   private readonly logger = new Logger(WhatsAppService.name);
-  private readonly accessToken = process.env.WABA_ACCESS_TOKEN;
-  private readonly phoneNumberId = process.env.WABA_PHONE_NUMBER_ID;
 
-  // Send plain text
-  async sendMessage(to: string, message: string) {
-    const url = `https://graph.facebook.com/v17.0/${this.phoneNumberId}/messages`;
+  constructor(private readonly prisma: PrismaService) {}
+
+  // Get doctor-specific WhatsApp config
+  private async getDoctorWhatsAppConfig(doctorId: number) {
+    const doctor = await this.prisma.doctor.findUnique({
+      where: { id: doctorId },
+      select: { waAccessToken: true, phoneNumberId: true },
+    });
+
+    if (!doctor || !doctor.waAccessToken || !doctor.phoneNumberId) {
+      throw new Error('Doctor WhatsApp configuration missing');
+    }
+
+    return {
+      accessToken: doctor.waAccessToken,
+      phoneNumberId: doctor.phoneNumberId,
+      url: `https://graph.facebook.com/v17.0/${doctor.phoneNumberId}/messages`,
+    };
+  }
+
+  // Simulate typing delay based on message length
+  private async simulateTyping(message: string) {
+    const delay = Math.min(Math.max(message.length * 50, 600), 2500);
+    this.logger.log(`Simulating typing for ${delay}ms...`);
+    await new Promise((resolve) => setTimeout(resolve, delay));
+  }
+
+  // Send plain text message
+  async sendMessage(doctorId: number, to: string, message: string) {
+    const { accessToken, url } = await this.getDoctorWhatsAppConfig(doctorId);
+
+    await this.simulateTyping(message);
+
     try {
       const res = await axios.post(
         url,
@@ -20,11 +49,12 @@ export class WhatsAppService {
         },
         {
           headers: {
-            Authorization: `Bearer ${this.accessToken}`,
+            Authorization: `Bearer ${accessToken}`,
             'Content-Type': 'application/json',
           },
         },
       );
+
       this.logger.log(`Sent message to ${to}: ${message}`);
       return res.data;
     } catch (err: any) {
@@ -37,12 +67,14 @@ export class WhatsAppService {
 
   // Send template messages
   async sendTemplateMessage(
+    doctorId: number,
     to: string,
     templateName: string,
     languageCode = 'en_US',
     components?: any[],
   ) {
-    const url = `https://graph.facebook.com/v17.0/${this.phoneNumberId}/messages`;
+    const { accessToken, url } = await this.getDoctorWhatsAppConfig(doctorId);
+
     try {
       const res = await axios.post(
         url,
@@ -55,14 +87,16 @@ export class WhatsAppService {
             language: { code: languageCode },
             components: components || [],
           },
+          // Note: WhatsApp Cloud API does NOT support real typing indicators yet
         },
         {
           headers: {
-            Authorization: `Bearer ${this.accessToken}`,
+            Authorization: `Bearer ${accessToken}`,
             'Content-Type': 'application/json',
           },
         },
       );
+
       this.logger.log(`Sent template message to ${to}: ${templateName}`);
       return res.data;
     } catch (err: any) {

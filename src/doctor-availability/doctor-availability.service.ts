@@ -4,8 +4,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
-import { createAvailabilityDto } from './dto/create-availability.dto';
-import { UpdateAvailabilityDto } from './dto/update-availability.dto';
+import { CreateAvailabilityDto } from './dto/createAvailability.dto';
+import { UpdateAvailabilityDto } from './dto/updateAvailability.dto';
 
 @Injectable()
 export class DoctorAvailabilityService {
@@ -22,15 +22,15 @@ export class DoctorAvailabilityService {
       throw new InternalServerErrorException(err);
     }
   }
-  async createAvailability(doctorId: number, dto: createAvailabilityDto) {
+  async createAvailability(doctorId: number, dto: CreateAvailabilityDto) {
     try {
       await this.prisma.doctorAvailability.create({
         data: {
           doctorId,
-          day: dto.day,
+
+          day: Number(dto.day),
           startTime: dto.startTime,
           endTime: dto.endTime,
-          isActive: dto.isActive,
         },
       });
       return { message: 'Created' };
@@ -45,9 +45,14 @@ export class DoctorAvailabilityService {
       });
       if (!existing) throw new NotFoundException('Not found');
 
+      const updateData: any = { ...dto };
+      if (dto.day !== undefined && dto.day !== null) {
+        updateData.day = Number(dto.day);
+      }
+
       return await this.prisma.doctorAvailability.update({
         where: { id: id },
-        data: { ...dto },
+        data: updateData,
       });
     } catch (err) {
       throw new InternalServerErrorException(err);

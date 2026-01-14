@@ -17,8 +17,8 @@ import { RoleGuard } from 'src/auth/guard/role.guard';
 import { Role } from 'src/auth/enum/role.enum';
 import { UpdateDoctorDto } from './dto/update-doctor.dto';
 import { DoctorChangePassword } from './dto/doctor-changePass.dto';
-import { DoctorAssistantService } from './doctor-assistant.service';
 import { doctorUpdateAssistantDto } from './dto/doctor-update-assistant.dto';
+import { DoctorAssistantService } from './doctor-assistant.service';
 
 @Controller('doctor')
 @ApiBearerAuth('JWT-auth')
@@ -66,7 +66,7 @@ export class DoctorController {
     @Body() dto: doctorUpdateAssistantDto,
   ) {
     const doc = req.user.sub;
-    return this.doctorAssistant.updateMyAssistant(doc, id, dto);
+    return this.doctorAssistant.updateAssistant(doc, id, dto);
   }
   @Patch('change-assistan-password/:id')
   changeAssistantPassword(
@@ -75,7 +75,7 @@ export class DoctorController {
     @Body() newPass: string,
   ) {
     const doc = req.user.sub;
-    return this.doctorAssistant.changeAssistantPassword(doc, id, newPass);
+    return this.doctorAssistant.chageMyAssistantPassword(doc, id, newPass);
   }
 
   @Patch('deactivate-assistant/:id')
@@ -84,7 +84,7 @@ export class DoctorController {
     @Param('id', ParseIntPipe) id: number,
   ) {
     const doc = req.user.sub;
-    return this.doctorAssistant.deactivateMyAssitant(doc, id);
+    return this.doctorAssistant.deactivateMyAssistant(doc, id);
   }
 
   @Delete('delete-assistant/:id')
@@ -93,6 +93,6 @@ export class DoctorController {
     @Param('id', ParseIntPipe) id: number,
   ) {
     const doc = req.user.sub;
-    return this.doctorAssistant.deleteMyAssistanAccount(doc, id);
+    return this.doctorAssistant.deleteMyAssistant(doc, id);
   }
 }

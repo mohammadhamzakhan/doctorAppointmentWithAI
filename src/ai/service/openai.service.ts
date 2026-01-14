@@ -12,7 +12,7 @@ export class OpenAiService {
         function: {
           name: 'book_appointment',
           description:
-            'Books an appointment with a doctor given the required details and confrim it to book.',
+            'Books an appointment with a doctor given the required details and confirm it to book.',
           parameters: {
             type: 'object',
             properties: {
@@ -35,7 +35,7 @@ export class OpenAiService {
                 description: 'The reason for the appointment.',
               },
             },
-            required: ['doctorId', 'date', 'time'], // ✅ doctorId instead of doctor name
+            required: ['doctorId', 'date', 'time'],
           },
         },
       },
@@ -43,7 +43,7 @@ export class OpenAiService {
         type: 'function',
         function: {
           name: 'cancel_appointment',
-          description: 'Cancels an appointment after confirmation..',
+          description: 'Cancels an appointment after confirmation.',
           parameters: {
             type: 'object',
             properties: {
@@ -60,18 +60,39 @@ export class OpenAiService {
     ];
   }
 
+  private getTodayMessage() {
+    const today = new Date();
+    const todayStr = today.toLocaleDateString('en-GB'); // DD/MM/YYYY
+    return {
+      role: 'system',
+      content: `🗓️ Today is ${todayStr}. Always use this date whenever the user says "today" or "aj".`,
+    };
+  }
+
   async chat(messages: any[]) {
     return this.openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
+        // Your default system context
         {
           role: 'system',
           content: 'You are a doctor appointment booking assistant.',
         },
+        // Inject today globally
+        this.getTodayMessage(),
         ...messages,
       ],
       tools: this.getTools(),
       tool_choice: 'auto',
     });
+  }
+
+  async chatSingle(params: { system: string; user: string }): Promise<string> {
+    const response = await this.chat([
+      { role: 'system', content: params.system },
+      { role: 'user', content: params.user },
+    ]);
+
+    return response.choices?.[0]?.message?.content?.trim() || '';
   }
 }

@@ -21,6 +21,10 @@ export class UpdateDoctorDto {
   @IsString()
   phoneNumber: string;
 
+  @IsNotEmpty()
+  @IsString()
+  phoneNumberId: string;
+
   // OPTIONAL — enrich profile
   @IsOptional()
   @IsString()
@@ -43,4 +47,8 @@ export class UpdateDoctorDto {
   @IsOptional()
   @IsString()
   timezone?: string;
+
+  @IsOptional()
+  @IsString()
+  waAccessToken?: string;
 }

@@ -17,8 +17,8 @@ import { RoleGuard } from 'src/auth/guard/role.guard';
 import { Roles } from 'src/auth/decorator/role.decorator';
 import { JwtAccessGuard } from 'src/auth/guard/auth.guard';
 import { Role } from 'src/auth/enum/role.enum';
-import { createAvailabilityDto } from './dto/create-availability.dto';
-import { UpdateAvailabilityDto } from './dto/update-availability.dto';
+import { CreateAvailabilityDto } from './dto/createAvailability.dto';
+import { UpdateAvailabilityDto } from './dto/updateAvailability.dto';
 
 @Controller('doctor-availability')
 @ApiBearerAuth('JWT-auth')
@@ -34,7 +34,7 @@ export class DoctorAvailabilityController {
   }
 
   @Post('create-availability')
-  createAvailability(@Request() req: any, @Body() dto: createAvailabilityDto) {
+  createAvailability(@Request() req: any, @Body() dto: CreateAvailabilityDto) {
     const id = req.user.sub;
     return this.doctorAvail.createAvailability(id, dto);
   }

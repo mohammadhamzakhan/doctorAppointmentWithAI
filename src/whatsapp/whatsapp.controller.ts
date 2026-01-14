@@ -1,6 +1,7 @@
 import { Controller, Post, Body, Query, Logger, Get } from '@nestjs/common';
 import { WhatsAppService } from './whatsapp.service';
 import { AIProcessor } from 'src/ai/ai.processor';
+import { DoctorService } from 'src/doctor/doctor.service';
 
 @Controller('whatsapp')
 export class WhatsAppController {
@@ -9,6 +10,7 @@ export class WhatsAppController {
   constructor(
     private readonly aiProcessor: AIProcessor,
     private readonly whatsappService: WhatsAppService,
+    private readonly doctorService: DoctorService,
   ) {}
 
   /** GET → webhook verification */
@@ -34,53 +36,67 @@ export class WhatsAppController {
   /** POST → incoming messages */
   @Post('webhook')
   async receiveMessage(@Body() body: any) {
-    this.logger.log(
-      'Incoming WhatsApp webhook:',
-      JSON.stringify(body, null, 2),
-    );
+    this.logger.log('Webhook hit');
 
-    if (!body || !body.entry) {
-      return { status: 'ok' };
-    }
+    setImmediate(async () => {
+      try {
+        if (!body?.entry) return;
 
-    try {
-      for (const entry of body.entry) {
-        if (!entry.changes) continue;
+        for (const entry of body.entry) {
+          for (const change of entry.changes ?? []) {
+            const value = change.value;
+            if (!value?.messages) continue;
 
-        for (const change of entry.changes) {
-          const value = change.value;
+            // ✅ Use phone_number_id to find doctor
+            const phoneNumberId = value.metadata?.phone_number_id;
+            const doctor =
+              await this.doctorService.getDoctorByPhoneId(phoneNumberId);
 
-          // The incoming messages array
-          if (!value?.messages) continue;
+            if (!doctor) {
+              this.logger.warn(
+                'Doctor not found for phone_number_id:',
+                phoneNumberId,
+              );
+              continue;
+            }
 
-          for (const message of value.messages) {
-            const from = '+' + message.from.replace(/\D/g, '');
-            const text = message.text?.body || '';
+            for (const message of value.messages) {
+              if (!message.from) {
+                this.logger.warn(
+                  'Skipping message without "from":',
+                  JSON.stringify(message),
+                );
+                continue;
+              }
 
-            this.logger.log(`Message from ${from}: ${text}`);
+              const from = message.from;
+              const text = message.text?.body || '';
 
-            // Simple echo logic (for test)
-            return await this.whatsappService.sendMessage(
-              from,
-              `Echo: ${text}`,
-            );
+              this.logger.log(
+                `Message from ${from} to doctor ${doctor.name}: ${text}`,
+              );
 
-            // If you want AI reply, uncomment next lines:
-            /*
-            const aiResponse = await this.aiProcessor.processMessage(
-              from,
-              text,
-              value.metadata?.phone_number_id, // pass Cloud phone_number_id if needed
-            );
-            await this.whatsappService.sendMessage(from, aiResponse);
-            */
+              // Pass the doctor's phone number to AI processor
+              const aiResponse = await this.aiProcessor.processMessage(
+                from,
+                text,
+                doctor.phoneNumber!,
+              );
+
+              await this.whatsappService.sendMessage(
+                doctor.id,
+                from,
+                aiResponse,
+              );
+              this.logger.log(`Sent AI response to ${from}: ${aiResponse}`);
+            }
           }
         }
+      } catch (err) {
+        this.logger.error('Webhook async error', err);
       }
-    } catch (err: any) {
-      this.logger.error(`Error processing webhook: ${err.message}`, err.stack);
-    }
+    });
 
-    return { status: 'ok' };
+    return { status: 'ok' }; // ✅ Respond immediately
   }
 }

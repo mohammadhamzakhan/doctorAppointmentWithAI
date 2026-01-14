@@ -7,6 +7,8 @@ import {
 import { PrismaService } from 'src/prisma/prisma.service';
 import { UpdateDoctorDto } from './dto/update-doctor.dto';
 import * as bcrypt from 'bcrypt';
+import * as argon from 'argon2';
+
 import { DoctorChangePassword } from './dto/doctor-changePass.dto';
 
 @Injectable()
@@ -24,6 +26,8 @@ export class DoctorService {
           specialization: true,
           bio: true,
           doctorAvailabilities: true,
+          clinicName: true,
+          timezone: true,
         },
       });
 
@@ -45,6 +49,12 @@ export class DoctorService {
     try {
       const doctor = await this.prisma.doctor.findFirst({
         where: { phoneNumber: doctorPhoneNumber },
+        select: {
+          id: true,
+          name: true,
+          doctorAvailabilities: true,
+          timezone: true,
+        },
       });
 
       if (!doctor)
@@ -65,20 +75,33 @@ export class DoctorService {
       });
 
       if (!getMe) throw new NotFoundException(`${doctorId} not found!`);
-      const normalizedDoctorPhone = normalizePhoneNumber(dto.phoneNumber);
-
+      const normalizedDoctorPhone = dto.phoneNumber
+        ? normalizePhoneNumber(dto.phoneNumber)
+        : undefined;
       await this.prisma.doctor.update({
         where: { id: doctorId },
         data: {
           ...dto,
-          phoneNumber: normalizedDoctorPhone,
+          phoneNumber: normalizedDoctorPhone ?? getMe.phoneNumber,
           isProfileCompleted: true,
         },
       });
 
       return { message: 'Profile updated' };
-    } catch (err) {
-      throw new InternalServerErrorException(err);
+    } catch (err: any) {
+      // Log full error
+      console.error('Full error:', err);
+
+      // If it's a Prisma known error
+      if (err.code) {
+        console.error('Prisma error code:', err.code);
+        console.error('Prisma error meta:', err.meta);
+      }
+
+      // Return the message safely
+      throw new InternalServerErrorException(
+        err.message || 'Something went wrong',
+      );
     }
   }
   async changeMyPassword(doctorId: number, dto: DoctorChangePassword) {
