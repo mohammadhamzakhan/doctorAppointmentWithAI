@@ -6,11 +6,11 @@ import { AppointmentsService } from 'src/appointments/appointments.service';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { detectIntend } from './helper/AI_helpers/detect.intend.helper';
 import { buildDoctorSystemPrompt } from './helper/AI_helpers/build-doctor-system-prompt.helper';
-import { respondToGreetings } from './helper/AI_helpers/respond-to-greetings.helper';
 import { respondToUnavailablity } from './helper/AI_helpers/respond-to-unavailability.helper';
 import { respondToUnknownIntend } from './helper/AI_helpers/respond-to-unknown-intend.helper';
 import { bookingAppointment } from './helper/AI_helpers/booking-appointment.helper';
 import { respondToDoctorInfo } from './helper/AI_helpers/respond-to-doctor-info.helper';
+import { respondToGreetings } from './helper/AI_helpers/respond-to-greetings.helper';
 
 //max message per person to keep in the session
 const MAX_MESSAGES = 30;
