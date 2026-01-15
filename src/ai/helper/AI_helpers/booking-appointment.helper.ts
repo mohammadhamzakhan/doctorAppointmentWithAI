@@ -7,11 +7,14 @@ import { formatTime12Hour } from '../date_time_helpers/format-time-12-hour.helpe
 import { AppointmentsService } from 'src/appointments/appointments.service';
 import { OpenAiService } from 'src/ai/service/openai.service';
 import { PrismaService } from 'src/prisma/prisma.service';
-import { askForPatientName } from 'src/ai/prompts/asking-patient-name.prompt';
-import { askForAppointmentDate } from 'src/ai/prompts/ask-for-apt-date.prompt';
-import { doctorNotAvailableOnThatDay } from 'src/ai/prompts/doctor-not-available.prompt';
-import { askForAppointmentTime } from 'src/ai/prompts/ask-for-apt-time.prompt';
+
 import { formatDate } from '../date_time_helpers/format-date.helper';
+import {
+  askForAppointmentDate,
+  askForAppointmentTime,
+  askForPatientName,
+  doctorNotAvailableOnThatDay,
+} from 'src/ai/prompts';
 
 export async function bookingAppointment(
   doctorId: number,
