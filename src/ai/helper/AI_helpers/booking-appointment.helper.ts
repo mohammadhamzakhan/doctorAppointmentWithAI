@@ -43,7 +43,56 @@ export async function bookingAppointment(
     session.aiArgs.step = 'name';
   }
 
-  /* ---------------- STEP 1: ASK DATE ---------------- */
+  /* ---------------- STEP 1: ASK PATIENT NAME ---------------- */
+  if (!session.aiArgs.patientName) {
+    session.aiArgs.step = 'name';
+
+    // 🚫 Prevent date/time as name
+    if (extractDate(userMessage) || extractTime(userMessage)) {
+      return await openAiService.chatSingle({
+        system: `
+You are a WhatsApp medical receptionist in Pakistan.
+
+TASK:
+Ask ONLY for patient's name.
+
+RULES:
+-Do not greeting because already greets
+- Detect user language eg. english or Roman urdu
+- Detect user language
+- Very polite and friendly
+- Short WhatsApp message
+        `,
+        user: userMessage,
+      });
+    }
+
+    session.aiArgs.patientName = userMessage.trim();
+    session.aiArgs.step = 'awaiting_confirmation';
+
+    return await openAiService.chatSingle({
+      system: `
+You are a WhatsApp medical receptionist in Pakistan.
+
+TASK:
+Confirm appointment details and ask for confirmation.
+
+RULES:
+- Detect user language automatically
+- Roman Urdu preferred
+- Friendly and professional
+- Show name, date, and time clearly
+- Ask user to reply Yes or No
+      `,
+      user: `
+Name: ${session.aiArgs.patientName}
+Date: ${session.aiArgs.date}
+Time: ${session.aiArgs.time}
+      `,
+    });
+  }
+
+  /* ---------------- STEP 2: ASK DATE ---------------- */
   if (!session.aiArgs.date) {
     session.aiArgs.step = 'date';
     return await openAiService.chatSingle({
@@ -104,7 +153,7 @@ RULES:
     });
   }
 
-  /* ---------------- STEP 2: ASK TIME ---------------- */
+  /* ---------------- STEP 3: ASK TIME ---------------- */
   if (!session.aiArgs.time) {
     session.aiArgs.step = 'time';
     return await openAiService.chatSingle({
@@ -127,55 +176,6 @@ EXAMPLE (English):
 "Please tell me your preferred appointment time."
       `,
       user: userMessage,
-    });
-  }
-
-  /* ---------------- STEP 3: ASK PATIENT NAME ---------------- */
-  if (!session.aiArgs.patientName) {
-    session.aiArgs.step = 'name';
-
-    // 🚫 Prevent date/time as name
-    if (extractDate(userMessage) || extractTime(userMessage)) {
-      return await openAiService.chatSingle({
-        system: `
-You are a WhatsApp medical receptionist in Pakistan.
-
-TASK:
-Ask ONLY for patient's name.
-
-RULES:
--Do not greeting because already greets
-- Detect user language eg. english or Roman urdu
-- Detect user language
-- Very polite and friendly
-- Short WhatsApp message
-        `,
-        user: userMessage,
-      });
-    }
-
-    session.aiArgs.patientName = userMessage.trim();
-    session.aiArgs.step = 'awaiting_confirmation';
-
-    return await openAiService.chatSingle({
-      system: `
-You are a WhatsApp medical receptionist in Pakistan.
-
-TASK:
-Confirm appointment details and ask for confirmation.
-
-RULES:
-- Detect user language automatically
-- Roman Urdu preferred
-- Friendly and professional
-- Show name, date, and time clearly
-- Ask user to reply Yes or No
-      `,
-      user: `
-Name: ${session.aiArgs.patientName}
-Date: ${session.aiArgs.date}
-Time: ${session.aiArgs.time}
-      `,
     });
   }
 
