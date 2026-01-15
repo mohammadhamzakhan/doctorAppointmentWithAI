@@ -13,7 +13,7 @@ export class WhatsAppController {
     private readonly doctorService: DoctorService,
   ) {}
 
-  /** GET → webhook verification */
+  //GET  webhook verification
   @Get('webhook')
   verifyWebhook(
     @Query('hub.mode') mode: string,
@@ -33,7 +33,7 @@ export class WhatsAppController {
     return 'Verification failed';
   }
 
-  /** POST → incoming messages */
+  //POST  incoming messages
   @Post('webhook')
   async receiveMessage(@Body() body: any) {
     this.logger.log('Webhook hit');
@@ -47,7 +47,7 @@ export class WhatsAppController {
             const value = change.value;
             if (!value?.messages) continue;
 
-            // ✅ Use phone_number_id to find doctor
+            // Using phone_number_id to find doctor
             const phoneNumberId = value.metadata?.phone_number_id;
             const doctor =
               await this.doctorService.getDoctorByPhoneId(phoneNumberId);
@@ -97,6 +97,6 @@ export class WhatsAppController {
       }
     });
 
-    return { status: 'ok' }; // ✅ Respond immediately
+    return { status: 'ok' };
   }
 }
