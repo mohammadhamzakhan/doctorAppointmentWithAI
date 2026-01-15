@@ -3,6 +3,14 @@ import { formatLocalDate } from './format-local-date.helper';
 export function extractDate(message: string): string | null {
   const text = message.toLowerCase().trim();
   const today = new Date();
+
+  //We set setHours(0, 0, 0, 0)
+  // to reset the time to the start
+  //  of the day so date comparisons
+  //  work correctly and don’t break
+  // due to hidden time or timezone
+  // differences
+
   today.setHours(0, 0, 0, 0);
 
   // 🔹 Today
