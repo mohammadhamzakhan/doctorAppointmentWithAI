@@ -377,7 +377,7 @@ export class AuthService {
 
     return { message: 'Password reset successfully' };
   }
-  private generateOtp(length = 6) {
+  private generateOtp() {
     return Math.floor(100000 + Math.random() * 900000).toString(); // 6-digit OTP
   }
 }
