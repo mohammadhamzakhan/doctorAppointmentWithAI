@@ -26,18 +26,9 @@ export class WhatsAppService {
     };
   }
 
-  // Simulate typing delay based on message length
-  private async simulateTyping(message: string) {
-    const delay = Math.min(Math.max(message.length * 50, 600), 2500);
-    this.logger.log(`Simulating typing for ${delay}ms...`);
-    await new Promise((resolve) => setTimeout(resolve, delay));
-  }
-
   // Send plain text message
   async sendMessage(doctorId: number, to: string, message: string) {
     const { accessToken, url } = await this.getDoctorWhatsAppConfig(doctorId);
-
-    await this.simulateTyping(message);
 
     try {
       const res = await axios.post(
