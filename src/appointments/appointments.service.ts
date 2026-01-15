@@ -210,6 +210,25 @@ export class AppointmentsService {
     }
   }
 
+  // AppointmentsService
+  async getAppointmentsByDate(doctorId: number, date: Date) {
+    const startOfDay = new Date(date);
+    startOfDay.setHours(0, 0, 0, 0);
+
+    const endOfDay = new Date(date);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    return this.prisma.appointment.findMany({
+      where: {
+        doctorId,
+        scheduledStart: {
+          gte: startOfDay,
+          lte: endOfDay,
+        },
+      },
+    });
+  }
+
   async getDoctorAvailabilityForDay(doctorId: number, day: number) {
     return this.prisma.doctorAvailability.findFirst({
       where: { doctorId, day, isActive: true },
@@ -499,73 +518,106 @@ export class AppointmentsService {
   // get Remaining Slots
   //----------------
   async getRemainingSlots(doctorId: number, date: Date) {
-    //first normalize date
+    // -------------------  Normalize the date -------------------
+    // Use local date to avoid timezone mismatch
     const dayStart = new Date(date);
     dayStart.setHours(0, 0, 0, 0);
 
     const dayEnd = new Date(date);
     dayEnd.setHours(23, 59, 59, 999);
-    const dayofWeek = dayEnd.getDay();
-    const getDoctorAvailability =
-      await this.prisma.doctorAvailability.findFirst({
-        where: { doctorId, day: dayofWeek, isActive: true },
-      });
 
-    if (!getDoctorAvailability) {
-      throw new NotFoundException('Doctor is unavailabile for this day');
+    // -------------------  Map JS day to DB day -------------------
+    // JS: Sunday = 0, Monday = 1 ... Saturday = 6
+    // DB: Monday = 1, Sunday = 7
+    const jsDay = dayStart.getDay(); // 0 (Sun) - 6 (Sat)
+    const dayOfWeek = jsDay === 0 ? 7 : jsDay; // Sunday = 7 in DB
+
+    // ------------------- Get doctor availability -------------------
+    const availability = await this.prisma.doctorAvailability.findFirst({
+      where: { doctorId, day: dayOfWeek, isActive: true },
+    });
+
+    if (!availability || !availability.startTime || !availability.endTime) {
+      throw new NotFoundException(
+        'Doctor is unavailable or working hours not set for this day',
+      );
     }
 
-    //convert availability to minutes
-    const [startH, startM] = getDoctorAvailability.startTime
-      .split(':')
-      .map(Number);
-    const [endH, endM] = getDoctorAvailability.endTime.split(':').map(Number);
-    const availablityStart = startH * 60 + startM;
-    const availablityEnd = endH * 60 + endM;
-    //get already booked appointments
+    const { hours: startH, minutes: startM } = this.parseTime12to24(
+      availability.startTime,
+    );
+    const { hours: endH, minutes: endM } = this.parseTime12to24(
+      availability.endTime,
+    );
+
+    if (isNaN(startH) || isNaN(startM) || isNaN(endH) || isNaN(endM)) {
+      throw new Error('Doctor availability has invalid time format');
+    }
+
+    const availStart = startH * 60 + startM;
+    const availEnd = endH * 60 + endM;
+
+    console.log('availStart:', availStart);
+    console.log('availEnd:', availEnd);
+
+    // ------------------- Get doctor's slot duration -------------------
+    const doctor = await this.prisma.doctor.findUnique({
+      where: { id: doctorId },
+    });
+    if (!doctor) throw new NotFoundException('Doctor not found');
+
+    const slotDuration = doctor.slotDuration || 30; // default 30 mins
+
+    // -------------------Get booked appointments -------------------
     const booked = await this.prisma.appointment.findMany({
       where: {
         doctorId,
-        appointmentDate: {
-          gte: dayStart,
-          lte: dayEnd,
-        },
+        scheduledStart: { gte: dayStart, lte: dayEnd },
         appointmentStatus: { not: AppointmentStatus.cancelled },
       },
     });
 
-    //generate all slots
-    const doctor = await this.prisma.doctor.findUnique({
-      where: { id: doctorId },
-    });
-    if (!doctor) {
-      throw new NotFoundException('Doctor not found');
-    }
-    const slotDuration = doctor.slotDuration;
+    console.log(booked);
 
+    // -------------------  Generate all available slots -------------------
     const slots: { start: Date; end: Date }[] = [];
+
     for (
-      let min = availablityStart;
-      min + slotDuration <= availablityEnd;
+      let min = availStart;
+      min + slotDuration <= availEnd;
       min += slotDuration
     ) {
-      //create slot start and end time
       const slotStart = new Date(dayStart);
       slotStart.setHours(0, 0, 0, 0);
       slotStart.setMinutes(min);
 
       const slotEnd = new Date(slotStart);
-      slotEnd.setMinutes(slotEnd.getMinutes() + slotDuration);
+      slotEnd.setMinutes(slotStart.getMinutes() + slotDuration);
 
-      //check if the slot  is booked
+      // Check for conflicts
       const conflict = booked.find(
-        (apt) => slotStart < apt.scheduledEnd && slotEnd > apt.scheduledStart,
+        (apt) =>
+          slotStart < new Date(apt.scheduledEnd) &&
+          slotEnd > new Date(apt.scheduledStart),
       );
+
       if (!conflict) {
         slots.push({ start: slotStart, end: slotEnd });
       }
     }
-    return slots;
+
+    return slots; //Only available slots returned
+  }
+
+  //time. parser
+  parseTime12to24(timeStr: string) {
+    const [time, modifier] = timeStr.split(' '); // e.g., "9:00 am"
+    let [hours, minutes] = time.split(':').map(Number);
+
+    if (modifier.toLowerCase() === 'pm' && hours < 12) hours += 12;
+    if (modifier.toLowerCase() === 'am' && hours === 12) hours = 0;
+
+    return { hours, minutes };
   }
 
   //----------------

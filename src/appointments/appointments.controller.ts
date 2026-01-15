@@ -162,4 +162,35 @@ export class AppointmentsController {
     const doctorId = req.user.sub;
     return this.appointment.deleteAppointment(id, doctorId);
   }
+  // Test endpoint to get remaining slots
+  @Get('test-slots')
+  async testGetRemainingSlots(
+    @Query('doctorId', ParseIntPipe) doctorId: number,
+    @Query('date') date: string,
+  ) {
+    try {
+      const dateObj = new Date(date);
+      const slots = await this.appointment.getRemainingSlots(doctorId, dateObj);
+
+      // Format response for easier viewing
+      const formattedSlots = slots.map((s) => ({
+        start: s.start.toLocaleTimeString('en-US', {
+          hour: '2-digit',
+          minute: '2-digit',
+        }),
+        end: s.end.toLocaleTimeString('en-US', {
+          hour: '2-digit',
+          minute: '2-digit',
+        }),
+      }));
+
+      return {
+        doctorId,
+        date: dateObj.toDateString(),
+        remainingSlots: formattedSlots,
+      };
+    } catch (err) {
+      return { error: err.message };
+    }
+  }
 }
