@@ -1,7 +1,7 @@
 //This wel response to a use who sent greeting to a doctor number
 
-import { RESPONSE_TO_GREETING } from 'src/ai/prompts/response-to-greetings.prompt';
-import { OpenAiService } from 'src/ai/service/openai.service';
+import { RESPONSE_TO_GREETING } from '../../prompts/response-to-greetings.prompt';
+import { OpenAiService } from '../../service/openai.service';
 
 //eg : salam | hello | AOA | Hey | Asslam 0 Alaikum
 export async function respondToGreetings(

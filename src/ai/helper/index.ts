@@ -13,3 +13,4 @@ export * from './AI_helpers/detect.intend.helper';
 export * from './AI_helpers/respond-to-doctor-info.helper';
 export * from './AI_helpers/respond-to-unavailability.helper';
 export * from './AI_helpers/respond-to-unknown-intend.helper';
+export * from './AI_helpers/respond-to-greetings.helper';
