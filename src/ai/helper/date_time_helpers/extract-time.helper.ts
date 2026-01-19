@@ -3,8 +3,7 @@ export function extractTime(
   baseDate?: Date,
 ): { hour: number; minute: number; date?: Date } | null {
   const text = message.toLowerCase().trim();
-  const now = new Date();
-  const today = baseDate ?? now;
+  const today = baseDate ?? new Date();
 
   let hour = 0;
   let minute = 0;
@@ -20,6 +19,7 @@ export function extractTime(
     return { hour, minute };
   }
 
+  // 2️⃣ 24-hour format hh:mm
   const twentyFourMatch = text.match(/\b([01]?\d|2[0-3]):([0-5]\d)\b/);
   if (twentyFourMatch) {
     hour = parseInt(twentyFourMatch[1], 10);
@@ -27,54 +27,50 @@ export function extractTime(
     return { hour, minute };
   }
 
-  // 2️⃣ Roman Urdu time markers
+  // 3️⃣ Roman Urdu markers
   const timeMarkers: Record<string, number> = {
-    subha: 9, // morning → default 9 AM if hour missing
-    dopahar: 13, // afternoon → PM
-    shaam: 18, // evening
-    raat: 21, // night
+    subha: 9,
+    dopahar: 13,
+    shaam: 18,
+    raat: 21,
   };
 
-  // Match phrases like "10 subha", "2 dopahar", "6 shaam"
-  const romanTimeMatch = text.match(
-    /(\d{1,2})(?::(\d{2}))?\s*(subha|dopahar|shaam|raat)?/i,
+  const romanMatch = text.match(
+    /(\d{1,2})(?::(\d{2}))?\s*(subha|dopahar|shaam|raat|bje|baje|bajay)?/i,
   );
-  if (romanTimeMatch) {
-    hour = parseInt(romanTimeMatch[1], 10);
-    minute = romanTimeMatch[2] ? parseInt(romanTimeMatch[2], 10) : 0;
 
-    const marker = romanTimeMatch[3]?.toLowerCase();
-    if (marker && timeMarkers[marker] !== undefined) {
-      if (marker === 'subha' && hour > 12) hour -= 12; // morning should be AM
-      if (marker === 'dopahar' && hour < 12) hour += 12;
-      if (marker === 'shaam' && hour < 12) hour += 12;
-      if (marker === 'raat' && hour < 12) hour += 12;
-    } else {
-      // If no marker, apply simple logic: if hour < current hour, assume PM
-      const currentHour = today.getHours();
-      if (hour <= currentHour) hour += 12;
+  if (romanMatch) {
+    hour = parseInt(romanMatch[1], 10);
+    minute = romanMatch[2] ? parseInt(romanMatch[2], 10) : 0;
+
+    const marker = romanMatch[3]?.toLowerCase();
+    if (marker) {
+      if (marker in timeMarkers) {
+        // subha/dopahar/shaam/raat logic
+        if (marker === 'subha' && hour > 12) hour -= 12;
+        if (['dopahar', 'shaam', 'raat'].includes(marker) && hour < 12)
+          hour += 12;
+      } else if (['bje', 'baje', 'bajay'].includes(marker)) {
+        // “7 bje” → infer AM or PM based on time of day
+        const currentHour = today.getHours();
+        if (hour < currentHour) hour += 12; // assume next PM if past
+      }
     }
 
-    return { hour, minute };
+    return { hour, minute, date: today };
   }
 
-  // 3️⃣ Words like "aj subha", "kal dopahar", "parso shaam" → adjust date
-  let targetDate = new Date(today);
-  if (/aj/.test(text)) targetDate = new Date(today);
-  if (/kal/.test(text)) targetDate.setDate(targetDate.getDate() + 1);
-  if (/parso/.test(text)) targetDate.setDate(targetDate.getDate() + 2);
-  if (/agle haftay|next week/.test(text))
-    targetDate.setDate(targetDate.getDate() + 7);
-
-  // Look for hour number
+  // 4️⃣ fallback: just hour number in message
   const hourOnly = text.match(/(\d{1,2})/);
   if (hourOnly) {
     hour = parseInt(hourOnly[1], 10);
-    // AM/PM based on context
+    minute = 0;
+
+    // apply Roman Urdu marker if exists
     if (/subha/.test(text) && hour > 12) hour -= 12;
     if (/dopahar|shaam|raat/.test(text) && hour < 12) hour += 12;
 
-    return { hour, minute, date: targetDate };
+    return { hour, minute, date: today };
   }
 
   return null;

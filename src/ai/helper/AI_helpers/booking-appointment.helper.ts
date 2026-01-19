@@ -1,245 +1,80 @@
-import { ChatSession } from 'src/ai/interface/chat-session.interface';
-import { extractDate } from '../date_time_helpers/extract-date.helper';
-import { extractTime } from '../date_time_helpers/extract-time.helper';
-import { getWeekdayName } from '../date_time_helpers/get-week-day-name.helper';
-import { parseTimeTo24Hour } from '../date_time_helpers/parse-time-to-24-hour.helper';
-import { formatTime12Hour } from '../date_time_helpers/format-time-12-hour.helper';
-import { AppointmentsService } from 'src/appointments/appointments.service';
-import { OpenAiService } from 'src/ai/service/openai.service';
-import { PrismaService } from 'src/prisma/prisma.service';
+export function extractTime(
+  message: string,
+  baseDate?: Date,
+): { hour: number; minute: number; date?: Date } | null {
+  const text = message.toLowerCase().trim();
+  const today = baseDate ?? new Date();
 
-import { formatDate } from '../date_time_helpers/format-date.helper';
-import {
-  askForAppointmentDate,
-  askForAppointmentTime,
-  askForPatientName,
-  doctorNotAvailableOnThatDay,
-} from 'src/ai/prompts';
+  let hour = 0;
+  let minute = 0;
 
-export async function bookingAppointment(
-  doctorId: number,
-  userMessage: string,
-  session: ChatSession,
-  patientPhone: string,
-  appointmentService: AppointmentsService,
-  openAiService: OpenAiService,
-  prisma: PrismaService,
-): Promise<string> {
-  session.aiArgs ??= {};
-  session.aiArgs.doctorId = doctorId;
-
-  /* ---------------- STEP 1: NAME ---------------- */
-  if (!session.aiArgs.step || session.aiArgs.step === 'name') {
-    if (extractDate(userMessage) || extractTime(userMessage)) {
-      return await openAiService.chatSingle({
-        system: askForPatientName,
-        user: userMessage,
-      });
-    }
-
-    session.aiArgs.patientName = userMessage.trim();
-    session.aiArgs.step = 'date';
-
-    return await openAiService.chatSingle({
-      system: askForAppointmentDate,
-      user: `Hello ${session.aiArgs.patientName}! Please select a date for your appointment.`,
-    });
+  // 1️⃣ Explicit am/pm or 24-hour format
+  let amPmMatch = text.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)/i);
+  if (!amPmMatch) {
+    // Handle "7 30 pm" without colon
+    amPmMatch = text.match(/(\d{1,2})\s+(\d{2})\s*(am|pm)/i);
   }
 
-  /* ---------------- STEP 2: DATE ---------------- */
-  if (session.aiArgs.step === 'date') {
-    const extractedDate = extractDate(userMessage);
-    if (!extractedDate) {
-      return await openAiService.chatSingle({
-        system: askForAppointmentDate,
-        user: `Please provide a valid date for your appointment.`,
-      });
-    }
-
-    session.aiArgs.date = extractedDate;
-    session.aiArgs.step = 'time';
-
-    const dateObj = new Date(extractedDate);
-    const day = dateObj.getDay();
-
-    const availability = await prisma.doctorAvailability.findFirst({
-      where: { doctorId, day, isActive: true },
-    });
-
-    if (!availability) {
-      const doctorWorkingHours = await prisma.doctorAvailability.findMany({
-        where: { doctorId, isActive: true },
-        orderBy: { day: 'asc' },
-      });
-
-      const formattedHours = doctorWorkingHours
-        .map((a) => `${getWeekdayName(a.day)}: ${a.startTime} to ${a.endTime}`)
-        .join('\n');
-
-      session.aiArgs.date = undefined;
-      session.aiArgs.step = 'date';
-
-      return await openAiService.chatSingle({
-        system: doctorNotAvailableOnThatDay,
-        user: `Doctor is not available on this day. Available days and timings:\n${formattedHours}`,
-      });
-    }
-
-    return await openAiService.chatSingle({
-      system: askForAppointmentTime,
-      user: `Available date selected: ${formatDate(dateObj)}. Please choose a time.`,
-    });
+  if (amPmMatch) {
+    hour = parseInt(amPmMatch[1], 10);
+    minute = amPmMatch[2] ? parseInt(amPmMatch[2], 10) : 0;
+    const period = amPmMatch[3].toLowerCase();
+    if (period === 'pm' && hour < 12) hour += 12;
+    if (period === 'am' && hour === 12) hour = 0;
+    return { hour, minute };
   }
 
-  /* ================= STEP 3: TIME ================= */
-  if (session.aiArgs.step === 'time') {
-    const selectedDate = new Date(session.aiArgs.date!);
+  // 2️⃣ 24-hour format hh:mm
+  const twentyFourMatch = text.match(/\b([01]?\d|2[0-3]):([0-5]\d)\b/);
+  if (twentyFourMatch) {
+    hour = parseInt(twentyFourMatch[1], 10);
+    minute = parseInt(twentyFourMatch[2], 10);
+    return { hour, minute };
+  }
 
-    // 1️⃣ Get remaining slots
-    let availableSlots: { start: Date; end: Date }[] = [];
-    try {
-      availableSlots = await appointmentService.getRemainingSlots(
-        doctorId,
-        selectedDate,
-      );
-    } catch (err) {
-      session.aiArgs.step = 'date';
-      session.aiArgs.date = undefined;
-      return await openAiService.chatSingle({
-        system: `WhatsApp receptionist`,
-        user: `Sorry, the doctor is not available on ${formatDate(
-          selectedDate,
-        )}. Please choose another date.`,
-      });
-    }
+  // 3️⃣ Roman Urdu markers (subha, dopahar, shaam, raat, bje)
+  const timeMarkers: Record<string, number> = {
+    subha: 9,
+    dopahar: 13,
+    shaam: 18,
+    raat: 21,
+  };
 
-    if (!availableSlots.length) {
-      session.aiArgs.step = 'date';
-      session.aiArgs.date = undefined;
-      return await openAiService.chatSingle({
-        system: `WhatsApp receptionist`,
-        user: `Sorry, all slots on ${formatDate(
-          selectedDate,
-        )} are booked. Please select another date.`,
-      });
-    }
+  const romanMatch = text.match(
+    /(\d{1,2})(?::(\d{2}))?\s*(subha|dopahar|shaam|raat|bje|baje|bajay)?/i,
+  );
 
-    // 2️⃣ Check if user requested a specific time
-    const requestedTime = extractTime(userMessage, selectedDate);
-    let chosenSlot = availableSlots[0]; // default to first available
+  if (romanMatch) {
+    hour = parseInt(romanMatch[1], 10);
+    minute = romanMatch[2] ? parseInt(romanMatch[2], 10) : 0;
 
-    let message: string;
-
-    if (requestedTime) {
-      const requestedMinutes = requestedTime.hour * 60 + requestedTime.minute;
-      const matchSlot = availableSlots.find((slot) => {
-        const slotMinutes =
-          slot.start.getHours() * 60 + slot.start.getMinutes();
-        return slotMinutes === requestedMinutes;
-      });
-
-      if (matchSlot) {
-        chosenSlot = matchSlot;
-        message = `Great! The time you requested is available.`;
-      } else {
-        chosenSlot = availableSlots[0];
-        const slotsList = availableSlots
-          .map((s) => formatTime12Hour(s.start))
-          .join(', ');
-        message = `The time you requested is not available. Available slots on ${formatDate(
-          selectedDate,
-        )}: ${slotsList}. I have tentatively selected the first available slot for you.`;
+    const marker = romanMatch[3]?.toLowerCase();
+    if (marker) {
+      if (marker in timeMarkers) {
+        if (marker === 'subha' && hour > 12) hour -= 12;
+        if (['dopahar', 'shaam', 'raat'].includes(marker) && hour < 12)
+          hour += 12;
+      } else if (['bje', 'baje', 'bajay'].includes(marker)) {
+        // "7 bje" → assume AM or PM based on current time
+        const nowHour = today.getHours();
+        if (hour <= nowHour) hour += 12;
       }
-    } else {
-      // no time requested, suggest first available
-      message = `Available slots on ${formatDate(
-        selectedDate,
-      )} are: ${availableSlots.map((s) => formatTime12Hour(s.start)).join(', ')}. I have selected the first available slot for you.`;
     }
 
-    // 3️⃣ Store chosen slot
-    session.aiArgs.time = `${chosenSlot.start
-      .getHours()
-      .toString()
-      .padStart(2, '0')}:${chosenSlot.start
-      .getMinutes()
-      .toString()
-      .padStart(2, '0')}`;
-    session.aiArgs.step = 'confirmed';
-
-    return await openAiService.chatSingle({
-      system: `WhatsApp receptionist`,
-      user: `${message}\n\nDo you want to confirm this appointment at ${formatTime12Hour(
-        chosenSlot.start,
-      )}? (Yes/No)`,
-    });
+    return { hour, minute, date: today };
   }
 
-  /* ================= STEP 4: CONFIRM ================= */
-  if (session.aiArgs.step === 'confirmed') {
-    const text = userMessage.toLowerCase().trim();
-    const confirmations = [
-      'yes',
-      'haan',
-      'han',
-      'confirm',
-      'bilkul',
-      'g',
-      'book kardein',
-    ];
+  // 4️⃣ fallback: just number
+  const hourOnly = text.match(/(\d{1,2})/);
+  if (hourOnly) {
+    hour = parseInt(hourOnly[1], 10);
+    minute = 0;
 
-    if (!confirmations.includes(text)) {
-      session.aiArgs = {};
-      return await openAiService.chatSingle({
-        system: `WhatsApp receptionist`,
-        user: `Okay, appointment cancelled. You can start again if you want.`,
-      });
-    }
+    if (/subha/.test(text) && hour > 12) hour -= 12;
+    if (/dopahar|shaam|raat/.test(text) && hour < 12) hour += 12;
 
-    const { hour, minute } = parseTimeTo24Hour(session.aiArgs.time!);
-    const appointmentDateTime = new Date(session.aiArgs.date!);
-    appointmentDateTime.setHours(hour, minute, 0, 0);
-
-    if (appointmentDateTime <= new Date()) {
-      session.aiArgs.time = undefined;
-      session.aiArgs.step = 'time';
-      return await openAiService.chatSingle({
-        system: `WhatsApp receptionist`,
-        user: `Please select a future time for your appointment.`,
-      });
-    }
-
-    // Book appointment
-    await appointmentService.createAppointment(
-      doctorId,
-      {
-        pateintName: session.aiArgs.patientName!,
-        patientPhone,
-        scheduledStart: appointmentDateTime,
-      },
-      'ai',
-      doctorId,
-    );
-
-    const patientName = session.aiArgs.patientName!;
-    const dateStr = appointmentDateTime.toLocaleDateString('en-US', {
-      weekday: 'long',
-      day: 'numeric',
-      month: 'long',
-    });
-    const timeStr = formatTime12Hour(appointmentDateTime);
-
-    session.aiArgs = {};
-
-    return await openAiService.chatSingle({
-      system: `WhatsApp receptionist`,
-      user: `✅ ${patientName}, your appointment is confirmed!\n📅 Date: ${dateStr}\n⏰ Time: ${timeStr}`,
-    });
+    return { hour, minute, date: today };
   }
 
-  /* ---------------- FALLBACK ---------------- */
-  return await openAiService.chatSingle({
-    system: `You are a WhatsApp medical receptionist in Pakistan.`,
-    user: userMessage,
-  });
+  return null;
 }
