@@ -9,7 +9,12 @@ export function extractTime(
   let minute = 0;
 
   // 1️⃣ Explicit am/pm or 24-hour format
-  const amPmMatch = text.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)/i);
+  let amPmMatch = text.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)/i);
+  if (!amPmMatch) {
+    // Handle "7 30 pm" without colon
+    amPmMatch = text.match(/(\d{1,2})\s+(\d{2})\s*(am|pm)/i);
+  }
+
   if (amPmMatch) {
     hour = parseInt(amPmMatch[1], 10);
     minute = amPmMatch[2] ? parseInt(amPmMatch[2], 10) : 0;
@@ -27,7 +32,7 @@ export function extractTime(
     return { hour, minute };
   }
 
-  // 3️⃣ Roman Urdu markers
+  // 3️⃣ Roman Urdu markers (subha, dopahar, shaam, raat, bje)
   const timeMarkers: Record<string, number> = {
     subha: 9,
     dopahar: 13,
@@ -46,27 +51,25 @@ export function extractTime(
     const marker = romanMatch[3]?.toLowerCase();
     if (marker) {
       if (marker in timeMarkers) {
-        // subha/dopahar/shaam/raat logic
         if (marker === 'subha' && hour > 12) hour -= 12;
         if (['dopahar', 'shaam', 'raat'].includes(marker) && hour < 12)
           hour += 12;
       } else if (['bje', 'baje', 'bajay'].includes(marker)) {
-        // “7 bje” → infer AM or PM based on time of day
-        const currentHour = today.getHours();
-        if (hour < currentHour) hour += 12; // assume next PM if past
+        // "7 bje" → assume AM or PM based on current time
+        const nowHour = today.getHours();
+        if (hour <= nowHour) hour += 12;
       }
     }
 
     return { hour, minute, date: today };
   }
 
-  // 4️⃣ fallback: just hour number in message
+  // 4️⃣ fallback: just number
   const hourOnly = text.match(/(\d{1,2})/);
   if (hourOnly) {
     hour = parseInt(hourOnly[1], 10);
     minute = 0;
 
-    // apply Roman Urdu marker if exists
     if (/subha/.test(text) && hour > 12) hour -= 12;
     if (/dopahar|shaam|raat/.test(text) && hour < 12) hour += 12;
 
