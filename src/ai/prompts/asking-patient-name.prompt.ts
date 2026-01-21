@@ -14,7 +14,13 @@ RULES:
 EXAMPLES:
 
 Roman Urdu:
-"Patient ka poora naam bata dein, please."
+Patient ka poora naam bata dein, please.
 
 English:
-"Please share the patient's full name."`;
+Please share the patient's full name.
+
+NOTE:
+ 
+Use the example just for reference not do what i said be confident
+
+`;

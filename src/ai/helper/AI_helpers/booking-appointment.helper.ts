@@ -27,7 +27,7 @@ export async function bookingAppointment(
   session.aiArgs ??= {};
   session.aiArgs.doctorId = doctorId;
 
-  /* ================= STEP 1: NAME ================= */
+  /* ================= ask name and store ================= */
   if (!session.aiArgs.step || session.aiArgs.step === 'name') {
     if (extractDate(userMessage) || extractTime(userMessage)) {
       return openAiService.chatSingle({
@@ -35,8 +35,8 @@ export async function bookingAppointment(
         user: userMessage,
       });
     }
-
-    session.aiArgs.patientName = userMessage.trim();
+    const pateintName = await extractPatientName(openAiService, userMessage);
+    session.aiArgs.patientName = pateintName?.trim();
     session.aiArgs.step = 'date';
 
     return openAiService.chatSingle({
@@ -45,7 +45,7 @@ export async function bookingAppointment(
     });
   }
 
-  /* ================= STEP 2: DATE ================= */
+  /* ================= ask date and store ================= */
   if (session.aiArgs.step === 'date') {
     const extractedDate = extractDate(userMessage);
 
@@ -121,7 +121,7 @@ Meherbani kar ke in mein se koi aik time select karein.`,
     });
   }
 
-  /* ================= STEP 3: TIME ================= */
+  /* ================= ask time and store ================= */
   if (session.aiArgs.step === 'time') {
     const selectedDate = new Date(session.aiArgs.date!);
 
@@ -198,11 +198,11 @@ Do you want to confirm your appointment at ${formatTime12Hour(
 Reply YES to confirm or NO to cancel.`;
   }
 
-  /* ================= STEP 4: CONFIRM ================= */
+  /* ================= ask for confirmaton  ================= */
   if (session.aiArgs.step === 'confirmed') {
     const text = userMessage.toLowerCase().trim();
 
-    const yesWords = ['yes', 'haan', 'han', 'confirm', 'bilkul', 'g'];
+    const yesWords = ['yes', 'haan', 'han', 'confirm', 'bilkul', 'g', 'Yes'];
     const noWords = ['no', 'cancel', 'nah'];
 
     if (noWords.includes(text)) {
@@ -246,15 +246,55 @@ Reply YES to confirm or NO to cancel.`;
     const patientName = session.aiArgs.patientName!;
     session.aiArgs = {};
 
-    return `✅ ${patientName}, your appointment is confirmed!
+    const prompt = `
+You are a friendly WhatsApp medical receptionist in Pakistan.
 
-📅 Date: ${dateStr}
-⏰ Time: ${timeStr}`;
+TASK:
+Generate a warm and professional appointment confirmation message.
+
+INPUT:
+- Patient Name: ${patientName}
+- Date: ${dateStr}
+- Time: ${timeStr}
+
+RULES:
+- Use Roman Urdu where appropriate
+- Include emojis
+- Mention: "Please reach the clinic on time"
+- Be polite, warm, and professional
+- Output should be ready to send directly to the patient
+`;
+    return await openAiService.chatSingle({
+      system: prompt,
+      user: 'Please generate the message.',
+    });
   }
 
-  /* ================= FALLBACK ================= */
+  /* ================= get back to chat ================= */
   return openAiService.chatSingle({
     system: `You are a WhatsApp medical receptionist in Pakistan.`,
     user: userMessage,
   });
+}
+async function extractPatientName(
+  openAiService: OpenAiService,
+  message: string,
+): Promise<string | null> {
+  const prompt = `
+Extract ONLY the patient's name from the text.
+If no name is found, respond with "NONE".
+
+Text: "${message}"
+`;
+  const response = await openAiService.chat([
+    { role: 'system', content: 'You extract names only.' },
+    { role: 'user', content: prompt },
+  ]);
+
+  let name = response.choices?.[0]?.message?.content?.trim() ?? '';
+  const match = name.match(/"(.*?)"/);
+  if (match) name = match[1];
+  name = name.replace(/^The name of the patient is /i, '').trim();
+  if (!name || name.toUpperCase() === 'NONE') return null;
+  return name;
 }
